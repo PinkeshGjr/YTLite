@@ -392,6 +392,8 @@ static NSString *GetCacheSize() {
 
         [sectionItems addObject:autoSpeed];
 
+        [sectionItems addObject:[self switchWithTitle:@"RememberSpeed" key:@"rememberSpeed"]];
+
         YTSettingsSectionItem *wifiQuality = [YTSettingsSectionItemClass itemWithTitle:LOC(@"PlaybackQualityOnWiFi")
         accessibilityIdentifier:@"YTLiteSectionItem"
         detailTextBlock:^NSString *() {

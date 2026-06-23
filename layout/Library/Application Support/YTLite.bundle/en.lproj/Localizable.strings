@@ -208,6 +208,8 @@
 "Player.Actions" = "Actions";
 "DefaultPlaybackRate" = "Default playback rate";
 "DefaultPlaybackRateDesc" = "Overrides the default playback speed";
+"RememberSpeed" = "Remember playback speed";
+"RememberSpeedDesc" = "Keeps the last selected playback speed and applies it to the next video. Takes precedence over the default playback rate.";
 "BackgroundPlayback" = "Background playback";
 "BackgroundPlaybackDesc" = "Enables background playback.";
 "Miniplayer" = "Enable mini player";

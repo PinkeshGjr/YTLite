@@ -4,6 +4,12 @@ static UIImage *YTImageNamed(NSString *imageName) {
     return [UIImage imageNamed:imageName inBundle:[NSBundle mainBundle] compatibleWithTraitCollection:nil];
 }
 
+// Set while a hold-to-speed (speedmaster) gesture is active so its temporary rate isn't persisted
+static BOOL speedmasterActive = NO;
+
+// Set during a video's load window so YouTube's internal rate reset isn't mistaken for a user choice
+static BOOL videoLoading = NO;
+
 // YouTube-X (https://github.com/PoomSmart/YouTube-X/)
 // Background Playback
 %hook YTIPlayabilityStatus
@@ -432,7 +438,11 @@ void autoSkipShorts(YTPlayerViewController *self, YTSingleVideoController *video
     if (ytlInt(@"wiFiQualityIndex") != 0 || ytlInt(@"cellQualityIndex") != 0) [self performSelector:@selector(autoQuality) withObject:nil afterDelay:1.0];
     if (ytlBool(@"autoFullscreen")) [self performSelector:@selector(autoFullscreen) withObject:nil afterDelay:0.75];
     if (ytlBool(@"shortsToRegular")) [self performSelector:@selector(shortsToRegular) withObject:nil afterDelay:0.75];
-    if (ytlInt(@"autoSpeedIndex") != 3) [self performSelector:@selector(setAutoSpeed) withObject:nil afterDelay:0.75];
+    if (ytlBool(@"rememberSpeed")) {
+        videoLoading = YES;
+        [self performSelector:@selector(setRememberedSpeed) withObject:nil afterDelay:0.75];
+    }
+    else if (ytlInt(@"autoSpeedIndex") != 3) [self performSelector:@selector(setAutoSpeed) withObject:nil afterDelay:0.75];
     if (ytlBool(@"disableAutoCaptions")) [self performSelector:@selector(turnOffCaptions) withObject:nil afterDelay:1.0];
 }
 
@@ -468,6 +478,19 @@ void autoSkipShorts(YTPlayerViewController *self, YTSingleVideoController *video
         NSArray *speedLabels = @[@0.25, @0.5, @0.75, @1.0, @1.25, @1.5, @1.75, @2.0, @3.0, @4.0, @5.0];
         [overlayVC setPlaybackRate:[speedLabels[ytlInt(@"autoSpeedIndex")] floatValue]];
     }
+}
+
+%new
+- (void)setRememberedSpeed {
+    if ([self.activeVideoPlayerOverlay isKindOfClass:NSClassFromString(@"YTMainAppVideoPlayerOverlayViewController")]
+        && [self.view.superview isKindOfClass:NSClassFromString(@"YTWatchView")]) {
+        YTMainAppVideoPlayerOverlayViewController *overlayVC = (YTMainAppVideoPlayerOverlayViewController *)self.activeVideoPlayerOverlay;
+
+        CGFloat rate = ytlFloat(@"lastSpeedRate");
+        if (rate > 0) [overlayVC setPlaybackRate:rate];
+    }
+    // Load window is over; capture genuine user speed changes from here on
+    videoLoading = NO;
 }
 
 %new
@@ -565,6 +588,12 @@ void autoSkipShorts(YTPlayerViewController *self, YTSingleVideoController *video
 %end
 
 %hook YTMainAppVideoPlayerOverlayViewController
+// Remember Playback Speed - store the last selected rate so it carries over to the next video
+- (void)setPlaybackRate:(CGFloat)rate {
+    %orig;
+    if (ytlBool(@"rememberSpeed") && !speedmasterActive && !videoLoading && rate > 0) ytlSetFloat(rate, @"lastSpeedRate");
+}
+
 // Disable Double Tap To Seek
 - (BOOL)allowDoubleTapToSeekGestureRecognizer { return ytlBool(@"noDoubleTapToSeek") ? NO : %orig; }
 
@@ -1309,11 +1338,13 @@ static void manageSpeedmasterYTLite(UILongPressGestureRecognizer *gesture, YTMai
 
     if (gesture.state == UIGestureRecognizerStateBegan) {
         rateBeforeSpeedmaster = delegate.currentPlaybackRate;
+        speedmasterActive = YES;
         [delegate setPlaybackRate:[speedLabels[ytlInt(@"speedIndex")] floatValue]];
         [edu setVisible:YES];
     }
 
     else if (gesture.state == UIGestureRecognizerStateEnded) {
+        speedmasterActive = NO;
         [delegate setPlaybackRate:rateBeforeSpeedmaster];
         [edu setVisible:NO];
     }

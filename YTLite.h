@@ -10,9 +10,11 @@
 
 #define ytlBool(key) [[YTLUserDefaults standardUserDefaults] boolForKey:key]
 #define ytlInt(key) [[YTLUserDefaults standardUserDefaults] integerForKey:key]
+#define ytlFloat(key) [[YTLUserDefaults standardUserDefaults] floatForKey:key]
 
 #define ytlSetBool(value, key) [[YTLUserDefaults standardUserDefaults] setBool:(value) forKey:(key)]
 #define ytlSetInt(value, key) [[YTLUserDefaults standardUserDefaults] setInteger:(value) forKey:(key)]
+#define ytlSetFloat(value, key) [[YTLUserDefaults standardUserDefaults] setFloat:(value) forKey:(key)]
 
 @interface YTTouchFeedbackController : YTCollectionViewCell
 @property (nonatomic, strong, readwrite) UIColor *feedbackColor;
