@@ -102,11 +102,16 @@ jobs:
           fi
 
       # Required by the core tweak (YTNativeShare.x imports ../protobuf/objectivec/*).
-      # Only the Objective-C headers are needed, so the checkout is sparse.
+      # Pinned to v21.12: newer protobuf reorganised the Objective-C runtime and
+      # removed GPBUnknownFieldSet.h (renamed to GPBUnknownFields.h), which this
+      # source still imports. Only the Objective-C headers are needed, so the
+      # checkout is sparse. Guard on the specific header so a stale/wrong-version
+      # protobuf restored from the Theos cache is re-fetched.
       - name: Clone protobuf headers
         run: |
-          if [ ! -d "$THEOS/include/protobuf" ]; then
-            git clone --quiet -n --depth=1 --filter=tree:0 https://github.com/protocolbuffers/protobuf $THEOS/include/protobuf
+          if [ ! -f "$THEOS/include/protobuf/objectivec/GPBUnknownFieldSet.h" ]; then
+            rm -rf "$THEOS/include/protobuf"
+            git clone --quiet -n --depth=1 --branch v21.12 --filter=tree:0 https://github.com/protocolbuffers/protobuf $THEOS/include/protobuf
             cd $THEOS/include/protobuf
             git sparse-checkout set --no-cone objectivec
             git checkout
