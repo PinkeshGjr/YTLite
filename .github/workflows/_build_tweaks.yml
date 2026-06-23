@@ -57,8 +57,9 @@ jobs:
           echo "$(brew --prefix make)/libexec/gnubin" >> $GITHUB_PATH
           echo "THEOS=${{ github.workspace }}/theos" >> $GITHUB_ENV
 
+      # Theos is now always required: the core YouTube Plus tweak is compiled from
+      # this repository's source (see "Build YouTube Plus from source" below).
       - name: Cache Theos
-        if: ${{ inputs.enable_youpip || inputs.enable_ytuhd || inputs.enable_yq || inputs.enable_ryd || inputs.enable_ytabc || inputs.enable_demc }}
         id: theos
         uses: actions/cache@v5
         env:
@@ -69,7 +70,7 @@ jobs:
           restore-keys: ${{ env.cache-name }}
 
       - name: Setup Theos
-        if: ${{ (inputs.enable_youpip || inputs.enable_ytuhd || inputs.enable_yq || inputs.enable_ryd || inputs.enable_ytabc || inputs.enable_demc) && steps.theos.outputs.cache-hit != 'true' }}
+        if: ${{ steps.theos.outputs.cache-hit != 'true' }}
         uses: actions/checkout@v6
         with:
           repository: theos/theos
@@ -78,7 +79,7 @@ jobs:
           submodules: recursive
 
       - name: Download iOS SDK
-        if: ${{ (inputs.enable_youpip || inputs.enable_ytuhd || inputs.enable_yq || inputs.enable_ryd || inputs.enable_ytabc || inputs.enable_demc) && steps.theos.outputs.cache-hit != 'true' }}
+        if: ${{ steps.theos.outputs.cache-hit != 'true' }}
         run: |
           git clone --quiet -n --depth=1 --filter=tree:0 https://github.com/theos/sdks/
           cd sdks
@@ -86,24 +87,9 @@ jobs:
           git checkout
           mv *.sdk $THEOS/sdks
 
-      - name: Download YouTube Plus (by version)
-        if: ${{ inputs.tweak_version != '' }}
-        run: |
-          deb_url="https://github.com/dayanch96/YTLite/releases/download/v${{ inputs.tweak_version }}/com.dvntm.ytlite_${{ inputs.tweak_version }}_iphoneos-arm.deb"
-          wget "$deb_url" --no-verbose -O ytplus.deb
-
-      - name: Download YouTube Plus (by URL)
-        if: ${{ inputs.tweak_url != '' }}
-        run: |
-          wget "${{ inputs.tweak_url }}" --no-verbose -O ytplus.deb
-          file_type=$(file --mime-type -b ytplus.deb)
-          if [[ "$file_type" != "application/vnd.debian.binary-package" ]]; then
-            echo "::error::Validation failed: The file is not a valid DEB file. Detected type: $file_type."
-            exit 1
-          fi
-
+      # Required by the core tweak (YouTubeHeaders.h imports ../YouTubeHeader/*)
+      # and by every optional integration, so it is always cloned.
       - name: Clone YouTubeHeader
-        if: ${{ inputs.enable_youpip || inputs.enable_ytuhd || inputs.enable_yq || inputs.enable_ryd || inputs.enable_ytabc || inputs.enable_demc }}
         run: |
           if [ -d "$THEOS/include/YouTubeHeader" ]; then
             cd $THEOS/include/YouTubeHeader && git pull
@@ -114,6 +100,32 @@ jobs:
             rm -rf "$THEOS/include/YTHeaders"
             cp -r "$THEOS/include/YouTubeHeader" "$THEOS/include/YTHeaders"
           fi
+
+      # Required by the core tweak (YTNativeShare.x imports ../protobuf/objectivec/*).
+      # Only the Objective-C headers are needed, so the checkout is sparse.
+      - name: Clone protobuf headers
+        run: |
+          if [ ! -d "$THEOS/include/protobuf" ]; then
+            git clone --quiet -n --depth=1 --filter=tree:0 https://github.com/protocolbuffers/protobuf $THEOS/include/protobuf
+            cd $THEOS/include/protobuf
+            git sparse-checkout set --no-cone objectivec
+            git checkout
+          fi
+
+      # Utils/NSBundle+YTLite.h imports <roothide.h> unconditionally, but the only
+      # usage is a jbroot() fallback that a cyan-injected (sideloaded) build never
+      # reaches because the bundle is found via mainBundle. Provide a minimal shim so
+      # the source compiles with the stock theos/theos toolchain. For a rootful/jailed
+      # install jbroot() returning the path unchanged is the correct behaviour.
+      - name: Add roothide.h shim
+        run: |
+          cat > "$THEOS/include/roothide.h" <<'EOF'
+          #ifndef ROOTHIDE_H
+          #define ROOTHIDE_H
+          #import <Foundation/Foundation.h>
+          static inline NSString *jbroot(NSString *path) { return path; }
+          #endif
+          EOF
 
       - name: Clone PSHeader
         if: ${{ inputs.enable_youpip || inputs.enable_ytuhd || inputs.enable_yq || inputs.enable_ryd || inputs.enable_ytabc || inputs.enable_demc }}
@@ -155,6 +167,33 @@ jobs:
       - name: Clone DontEatMyContent
         if: ${{ inputs.enable_demc }}
         run: git clone --quiet --depth=1 https://github.com/therealFoxster/DontEatMyContent.git
+
+      # Build the core YouTube Plus tweak from THIS repository's source. The source is
+      # checked out into $THEOS/include/YTLite so the ../YouTubeHeader and ../protobuf
+      # relative imports resolve. Triggered by the standard (by version) workflow.
+      - name: Checkout YouTube Plus source
+        if: ${{ inputs.tweak_version != '' }}
+        uses: actions/checkout@v6
+        with:
+          path: theos/include/YTLite
+
+      - name: Build YouTube Plus from source
+        if: ${{ inputs.tweak_version != '' }}
+        run: |
+          cd "$THEOS/include/YTLite"
+          make clean package DEBUG=0 FINALPACKAGE=1
+          mv packages/*.deb "$GITHUB_WORKSPACE/ytplus.deb"
+
+      # Beta workflow path: use a prebuilt tweak .deb supplied by URL instead of building.
+      - name: Download YouTube Plus (by URL)
+        if: ${{ inputs.tweak_url != '' }}
+        run: |
+          wget "${{ inputs.tweak_url }}" --no-verbose -O ytplus.deb
+          file_type=$(file --mime-type -b ytplus.deb)
+          if [[ "$file_type" != "application/vnd.debian.binary-package" ]]; then
+            echo "::error::Validation failed: The file is not a valid DEB file. Detected type: $file_type."
+            exit 1
+          fi
 
       - name: Build YouPiP
         if: ${{ inputs.enable_youpip }}
